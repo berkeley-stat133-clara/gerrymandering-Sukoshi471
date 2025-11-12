@@ -3,3 +3,69 @@ title: Data Cleaning
 format: typst
 ---
 
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+raw_data <- read_csv("data/g24_sov_by_g24_svprec.csv")
+dim(raw_data)  
+glimpse(raw_data)  
+```
+
+```{r}
+has_asterisk <- raw_data |>
+  mutate(across(everything(), ~. == "***")) |>
+  rowSums() > 0
+sum(has_asterisk) 
+
+```
+
+```{r}
+cleaned_data <- raw_data |>
+  mutate(across(where(is.character), ~na_if(., "***"))) |>
+  mutate(across(TOTREG:last_col(), as.numeric)) |>
+  mutate(
+    FIPS = as.numeric(FIPS),
+    CDDIST = as.numeric(CDDIST),
+    SDDIST = as.numeric(SDDIST),
+    BEDIST = as.numeric(BEDIST),
+    ADDIST = as.numeric(ADDIST)
+  )
+
+```
+
+```{r}
+duplicates <- cleaned_data |>
+  group_by(SVPREC_KEY) |>
+  filter(n() > 1)
+nrow(duplicates)  
+
+cleaned_data |>
+  filter(!is.na(TOTREG), !is.na(TOTVOTE), TOTREG > 0) |>
+  filter(TOTVOTE > TOTREG * 1.1) |>
+  nrow()
+
+cleaned_data |>
+  select(TOTVOTE, CNGDEM01, CNGREP01) |>
+  summarise(across(everything(), ~sum(. < 0, na.rm = TRUE)))
+
+```
+
+```{r}
+cleaned_data |>
+  summarise(
+    n_precincts = n(),
+    n_counties = n_distinct(COUNTY),
+    n_congressional_districts = n_distinct(CDDIST, na.rm = TRUE),
+    total_registered = sum(TOTREG, na.rm = TRUE),
+    total_votes = sum(TOTVOTE, na.rm = TRUE),
+    precincts_with_missing_votes = sum(is.na(TOTVOTE))
+  )
+
+```
+
+```{r}
+write_csv(cleaned_data, "data/g24_sov_cleaned.csv")
+```

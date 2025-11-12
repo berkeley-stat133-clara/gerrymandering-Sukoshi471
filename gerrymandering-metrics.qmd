@@ -3,9 +3,77 @@ title: Gerrymandering Metrics
 format: typst
 ---
 
+```{r}
+library(tidyverse)
+cleaned_data <- read_csv("data/g24_sov_cleaned.csv")
+```
+
 ### 2024 Election Results and the 2024 District Map
 
+```{r}
+district_2024 <- cleaned_data |>
+group_by(CDDIST) |>
+summarise(
+dem_votes = sum(CNGDEM01, na.rm = TRUE),
+rep_votes = sum(CNGREP01, na.rm = TRUE),
+total_votes = dem_votes + rep_votes,
+.groups = "drop"
+) |>
+filter(total_votes > 0) |>
+mutate(
+dem_share = dem_votes / total_votes,
+rep_share = rep_votes / total_votes,
+winner = if_else(dem_share > 0.5, "DEM", "REP")
+)
 
+district_2024
+
+```
+
+```{r}
+mean_dem_share_2024 <- mean(district_2024$dem_share)
+median_dem_share_2024 <- median(district_2024$dem_share)
+mm_score_2024 <- mean_dem_share_2024 - median_dem_share_2024
+
+mean_dem_share_2024
+median_dem_share_2024
+mm_score_2024
+
+```
+
+```{r}
+compute_efficiency_gap <- function(dem, rep) {
+total <- dem + rep
+threshold <- floor(total / 2) + 1
+
+dem_wasted <- if_else(dem > rep,
+dem - threshold,
+dem)
+rep_wasted <- if_else(rep > dem,
+rep - threshold,
+rep)
+
+total_dem_wasted <- sum(dem_wasted, na.rm = TRUE)
+total_rep_wasted <- sum(rep_wasted, na.rm = TRUE)
+total_votes <- sum(total, na.rm = TRUE)
+
+eg <- (total_rep_wasted - total_dem_wasted) / total_votes
+return(eg)
+}
+
+eg_2024 <- compute_efficiency_gap(
+dem = district_2024$dem_votes,
+rep = district_2024$rep_votes
+)
+
+eg_2024
+
+```
+
+For the 2024 congressional map, the mean Democratic vote share across districts is 61.6%, and the median is 62.7%, producing a mean–median difference of −0.0116. This slightly negative value suggests a minor pro-Republican structural bias, though the magnitude is small and likely within the range of natural variation.
+The efficiency gap, however, is +0.26, indicating that Republican candidates wasted substantially more votes than Democratic candidates. A positive efficiency gap of this size suggests a strong pro-Democratic advantage in translating votes into seats under the 2024 district configuration. In general, values above ±0.08 are considered indicative of significant partisan asymmetry, so this result implies that the 2024 congressional map favors Democrats to a considerable degree.
 
 ### 2024 Election Results and the proposed 2025 District Map
+
+
 

@@ -3,26 +3,120 @@ title: Exploratory Data Analysis
 format: typst
 ---
 
+```{r}
+library(tidyverse)
+
+cleaned_data <- read_csv("data/g24_sov_cleaned.csv")
+
+```
+
 ### Question 1
 
-Put your question here.
+Which Congressional districts had the closest races?
 
 ### Answer 1
 
-Put your answer here.
+```{r}
+district_results <- cleaned_data |>
+  group_by(CDDIST) |>
+  summarise(
+    dem_votes = sum(CNGDEM01, na.rm = TRUE),
+    rep_votes = sum(CNGREP01, na.rm = TRUE),
+    total_votes = dem_votes + rep_votes,
+    .groups = "drop"
+  ) |>
+  mutate(
+    dem_pct = dem_votes / total_votes * 100,
+    rep_pct = rep_votes / total_votes * 100,
+    margin = abs(dem_pct - rep_pct),  
+    winner = if_else(dem_votes > rep_votes, "DEM", "REP")
+  ) |>
+  arrange(margin)
+
+district_results |>
+  filter(total_votes > 0) |>
+  head(10) |>
+  select(CDDIST, winner, dem_pct, rep_pct, margin)
+
+district_results |>
+  filter(total_votes > 0) |>
+  head(10) |>
+  ggplot(aes(x = reorder(factor(CDDIST), margin), y = margin, fill = winner)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "10 Closest Congressional Districts (2024)",
+       x = "District",
+       y = "percentage points",
+       fill = "Winner") +
+  theme_minimal()
+
+
+```
+
+The plot and table above show the ten most competitive congressional districts in the 2024 election, ranked by the smallest difference between Democratic and Republican vote shares. These districts exhibit very narrow victory margins, indicating highly competitive partisan balance and suggesting that small changes in turnout or vote choice could have flipped the outcome.
 
 ### Question 2
 
-Put your question here.
+What is the distribution of precinct sizes?
 
 ### Answer 2
 
-Put your answer here.
+```{r}
+precinct_stats <- cleaned_data |>
+  filter(!is.na(TOTVOTE)) |>
+  summarise(
+    n_precincts = n(),
+    min_votes = min(TOTVOTE),
+    q25 = quantile(TOTVOTE, 0.25),
+    median_votes = median(TOTVOTE),
+    q75 = quantile(TOTVOTE, 0.75),
+    max_votes = max(TOTVOTE),
+    mean_votes = mean(TOTVOTE)
+  )
+print(precinct_stats)
+
+cleaned_data |>
+  filter(!is.na(TOTVOTE), TOTVOTE > 0) |>
+  ggplot(aes(x = TOTVOTE)) +
+  geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7) +
+  scale_x_log10() +
+  labs(title = "Distribution of Precinct Sizes (log scale)",
+       x = "Votes Cast",
+       y = "Number of Precincts") +
+  theme_minimal()
+
+```
+
+The summary statistics and histogram indicate that precinct sizes are highly right-skewed: most precincts have relatively modest turnout, while a smaller number of precincts serve substantially more voters. Using a log scale on the x-axis makes this pattern clearer. This distribution is typical and does not by itself suggest irregularities; however, very large precincts may experience different administrative and turnout dynamics compared to smaller ones.
 
 ### Question 3
 
-Put your question here.
+Do our district totals match expectations?
 
 ### Answer 3
 
-Put your answer here.
+```{r}
+district_totals <- cleaned_data |>
+  group_by(CDDIST) |>
+  summarise(
+    total_congressional_votes = sum(CNGDEM01, na.rm = TRUE) + 
+                                sum(CNGREP01, na.rm = TRUE),
+    total_votes_all_races = sum(TOTVOTE, na.rm = TRUE),
+    n_precincts = n(),
+    .groups = "drop"
+  )
+
+print("District vote totals:")
+print(district_totals)
+
+district_totals |>
+  mutate(ratio = total_congressional_votes / total_votes_all_races) |>
+  summarise(
+    min_ratio = min(ratio, na.rm = TRUE),
+    max_ratio = max(ratio, na.rm = TRUE),
+    mean_ratio = mean(ratio, na.rm = TRUE)
+  )
+
+```
+
+For each congressional district, we compare the total Democratic and Republican congressional votes to the total ballots cast (TOTVOTE). The resulting ratios are generally close to 1, indicating that the district-level congressional totals are consistent with the reported turnout. Minor deviations can be explained by third-party or write-in candidates, rounding, or data entry noise. We do not observe extreme discrepancies that would raise immediate concerns about the integrity of the district-level totals.
