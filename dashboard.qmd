@@ -1,5 +1,197 @@
 ---
-title: Dashboard
-format: dashboard
+title: "California Congressional Redistricting Analysis"
+subtitle: "Comparing 2024 and 2025 District Maps"
+format: 
+  dashboard:
+    orientation: columns
+editor: 
+  markdown: 
+    wrap: 72
 ---
 
+```{r}
+#| include: false
+library(tidyverse)
+library(plotly)
+
+# Load data
+cleaned_data <- read_csv("data/g24_sov_cleaned.csv")
+
+district_2024 <- cleaned_data |>
+  group_by(CDDIST) |>
+  summarise(
+    dem_votes = sum(CNGDEM01, na.rm = TRUE),
+    rep_votes = sum(CNGREP01, na.rm = TRUE),
+    total_votes = dem_votes + rep_votes,
+    .groups = "drop"
+  ) |>
+  filter(total_votes > 0) |>
+  mutate(
+    dem_share = dem_votes / total_votes,
+    rep_share = rep_votes / total_votes,
+    winner = if_else(dem_share > 0.5, "DEM", "REP"),
+    map = "2024"
+  )
+
+district_2025 <- read_csv("data/district_results_2025.csv") |>
+  mutate(
+    CDDIST = as.numeric(DISTRICT),
+    map = "2025"
+  )
+
+# Calculate metrics
+compute_eg <- function(dem, rep) {
+  total <- dem + rep
+  threshold <- floor(total / 2) + 1
+  dem_wasted <- if_else(dem > rep, dem - threshold, dem)
+  rep_wasted <- if_else(rep > dem, rep - threshold, rep)
+  (sum(rep_wasted, na.rm = TRUE) - sum(dem_wasted, na.rm = TRUE)) / sum(total, na.rm = TRUE)
+}
+
+mm_2024 <- mean(district_2024$dem_share) - median(district_2024$dem_share)
+mm_2025 <- mean(district_2025$dem_share) - median(district_2025$dem_share)
+eg_2024 <- compute_eg(district_2024$dem_votes, district_2024$rep_votes)
+eg_2025 <- compute_eg(district_2025$dem_votes, district_2025$rep_votes)
+```
+
+# Overview {.sidebar}
+
+**Research Question:** Does the 2025 proposed congressional map (AB 604)
+increase partisan advantage compared to the 2024 map?
+
+**Data:** 2024 General Election precinct-level voting results applied to
+both district maps.
+
+**Key Metrics:** - Mean-Median Score - Efficiency Gap
+
+# Metrics
+
+## Column {width="50%"}
+
+### Mean-Median Score
+
+```{r}
+mm_data <- data.frame(
+  Map = c("2024", "2025"),
+  Score = c(mm_2024, mm_2025)
+)
+
+p1 <- ggplot(mm_data, aes(x = Map, y = Score, fill = Map)) +
+  geom_col(width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("2024" = "#619CFF", "2025" = "#F8766D")) +
+  labs(
+    title = "Mean-Median Score Comparison",
+    y = "Score (positive = pro-DEM bias)",
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggplotly(p1)
+```
+
+### Interpretation
+
+The mean-median score measures the difference between the mean and
+median Democratic vote share across districts.
+
+**2024 Map:** `r round(mm_2024, 4)`\
+**2025 Map:** `r round(mm_2025, 4)`\
+**Change:** `r round(mm_2025 - mm_2024, 4)`
+
+The change is minimal, suggesting similar central tendencies in vote
+distribution.
+
+## Column {width="50%"}
+
+### Efficiency Gap
+
+```{r}
+eg_data <- data.frame(
+  Map = c("2024", "2025"),
+  Gap = c(eg_2024, eg_2025)
+)
+
+p2 <- ggplot(eg_data, aes(x = Map, y = Gap, fill = Map)) +
+  geom_col(width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0.08, linetype = "dotted", color = "red") +
+  geom_hline(yintercept = -0.08, linetype = "dotted", color = "red") +
+  scale_fill_manual(values = c("2024" = "#619CFF", "2025" = "#F8766D")) +
+  labs(
+    title = "Efficiency Gap Comparison",
+    y = "Gap (negative = pro-DEM advantage)",
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggplotly(p2)
+```
+
+### Interpretation
+
+The efficiency gap measures the difference in "wasted votes" between
+parties. Values beyond ±0.08 indicate significant partisan bias.
+
+**2024 Map:** `r round(eg_2024, 4)`\
+**2025 Map:** `r round(eg_2025, 4)`\
+**Change:** `r round(eg_2025 - eg_2024, 4)`
+
+The 2025 map shows a **dramatic increase** in pro-Democratic advantage,
+with Republicans wasting significantly more votes.
+
+# Vote Distribution
+
+### Democratic Vote Share Distribution
+
+```{r}
+combined <- bind_rows(district_2024, district_2025)
+
+p3 <- ggplot(combined, aes(x = dem_share, fill = map)) +
+  geom_histogram(alpha = 0.6, position = "identity", bins = 20) +
+  geom_vline(data = data.frame(
+    map = c("2024", "2025"),
+    mean_val = c(mean(district_2024$dem_share), mean(district_2025$dem_share))
+  ), aes(xintercept = mean_val, color = map), 
+  linetype = "dashed", linewidth = 1) +
+  scale_fill_manual(values = c("2024" = "#619CFF", "2025" = "#F8766D")) +
+  scale_color_manual(values = c("2024" = "#619CFF", "2025" = "#F8766D")) +
+  scale_x_continuous(labels = scales::percent) +
+  facet_wrap(~map, ncol = 1) +
+  labs(
+    title = "Distribution of Democratic Vote Share by District",
+    x = "Democratic Vote Share",
+    y = "Number of Districts",
+    fill = "Map",
+    color = "Mean"
+  ) +
+  theme_minimal()
+
+ggplotly(p3)
+```
+
+## Column {width="30%"}
+
+### Summary Statistics
+
+**2024 Map:** - Districts: `r nrow(district_2024)` - Mean Dem Share:
+`r scales::percent(mean(district_2024$dem_share), 0.1)` - Median Dem
+Share: `r scales::percent(median(district_2024$dem_share), 0.1)` - DEM
+Wins: `r sum(district_2024$winner == "DEM")` - REP Wins:
+`r sum(district_2024$winner == "REP")`
+
+**2025 Map:** - Districts: `r nrow(district_2025)` - Mean Dem Share:
+`r scales::percent(mean(district_2025$dem_share), 0.1)` - Median Dem
+Share: `r scales::percent(median(district_2025$dem_share), 0.1)` - DEM
+Wins: `r sum(district_2025$winner == "DEM")` - REP Wins:
+`r sum(district_2025$winner == "REP")`
+
+### Conclusion
+
+The 2025 proposed map (AB 604) significantly increases Democratic
+partisan advantage compared to the 2024 map. While the mean-median score
+shows minimal change, the efficiency gap demonstrates a substantial
+shift, indicating that the new district boundaries would favor Democrats
+in converting votes to seats.
